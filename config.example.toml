@@ -1,0 +1,18 @@
+# Humio/LogScale MCP Server Configuration
+# Copy this file to config.toml and fill in your values.
+#
+# Config search order:
+#   1. $HUMIO_MCP_CONFIG env var
+#   2. ./config.toml  (same directory you run from)
+#   3. ~/.config/humio-mcp/config.toml
+
+default_cluster = "us-west-2"
+
+[clusters.us-west-2]
+url = "https://your-humio-instance.example.com/logs"
+token = "your-api-token-here"
+
+# Add more clusters as needed:
+# [clusters.eu-central-1]
+# url = "https://humio-eu.example.com/logs"
+# token = "another-token"

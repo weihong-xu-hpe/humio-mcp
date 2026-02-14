@@ -1,0 +1,22 @@
+[project]
+name = "humio-mcp"
+version = "0.1.0"
+description = "MCP server for querying Humio/LogScale dashboards and executing search queries"
+readme = "README.md"
+authors = [
+    { name = "weihong-xu-hpe", email = "145993105+weihong-xu-hpe@users.noreply.github.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.28.1",
+    "mcp[cli]>=1.26.0",
+    "pydantic>=2.12.5",
+    "tomli>=2.0.0; python_version < '3.11'",
+]
+
+[project.scripts]
+humio-mcp = "humio_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
