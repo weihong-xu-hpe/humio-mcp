@@ -27,7 +27,7 @@ No clone needed. Add this to your VS Code `settings.json` or `.vscode/mcp.json`:
       "type": "stdio",
       "command": "uvx",
       "args": [
-        "--from", "git+https://github.com/weihong-xu-hpe/HumioMCP.git",
+        "--from", "git+https://github.com/weihong-xu-hpe/humio-mcp.git",
         "humio-mcp"
       ],
       "env": {
@@ -55,8 +55,8 @@ That's it — `uvx` handles install and updates automatically.
 ### Option B: Clone and run locally
 
 ```bash
-git clone https://github.com/weihong-xu-hpe/HumioMCP.git
-cd HumioMCP
+git clone https://github.com/weihong-xu-hpe/humio-mcp.git
+cd humio-mcp
 uv sync
 
 cp config.example.toml config.toml
@@ -87,7 +87,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
     "humio-mcp": {
       "command": "uvx",
       "args": [
-        "--from", "git+https://github.com/weihong-xu-hpe/HumioMCP.git",
+        "--from", "git+https://github.com/weihong-xu-hpe/humio-mcp.git",
         "humio-mcp"
       ],
       "env": {
