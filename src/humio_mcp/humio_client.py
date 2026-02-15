@@ -255,6 +255,74 @@ class HumioClient:
     # Search / Query execution
     # ------------------------------------------------------------------
 
+    # Retryable transport errors: connection drops, incomplete reads,
+    # and remote protocol violations (e.g. "incomplete chunked read").
+    _RETRYABLE_ERRORS = (
+        httpx.ReadError,
+        httpx.ConnectError,
+        httpx.RemoteProtocolError,
+        httpx.CloseError,
+    )
+
+    # ------------------------------------------------------------------
+    # Job-based query (create job → poll → fetch results)
+    # Avoids long-lived streaming connections that get killed by
+    # load balancers / reverse proxies with idle timeouts.
+    # ------------------------------------------------------------------
+
+    async def _create_query_job(
+        self, repo: str, payload: dict[str, Any]
+    ) -> str:
+        """Create a query job and return its ID."""
+        async with self._http_client() as client:
+            resp = await client.post(
+                f"/api/v1/repositories/{repo}/queryjobs",
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        return data["id"]
+
+    async def _poll_query_job(
+        self, repo: str, job_id: str, poll_interval: float = 2.0
+    ) -> list[dict[str, Any]]:
+        """Poll a query job until it completes, then return events.
+
+        Each poll is a short-lived HTTP request, so idle timeouts
+        on load balancers / proxies are not a problem.
+        """
+        poll_timeout = httpx.Timeout(connect=15.0, read=30.0, write=10.0, pool=10.0)
+
+        async with self._http_client(timeout=poll_timeout) as client:
+            while True:
+                resp = await client.get(
+                    f"/api/v1/repositories/{repo}/queryjobs/{job_id}",
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+                done = data.get("done", False)
+                events = data.get("events", [])
+
+                if done:
+                    return events
+
+                await asyncio.sleep(poll_interval)
+
+    async def _delete_query_job(self, repo: str, job_id: str) -> None:
+        """Best-effort cleanup of a finished query job."""
+        try:
+            async with self._http_client() as client:
+                await client.delete(
+                    f"/api/v1/repositories/{repo}/queryjobs/{job_id}",
+                )
+        except Exception:  # noqa: BLE001
+            pass  # Cleanup is best-effort
+
+    # ------------------------------------------------------------------
+    # Streaming fallback (kept for reference / simple queries)
+    # ------------------------------------------------------------------
+
     async def _stream_search_response(
         self, repo: str, payload: dict[str, Any]
     ) -> list[str]:
@@ -279,12 +347,30 @@ class HumioClient:
                         async for chunk in resp.aiter_text():
                             lines.append(chunk)
                 return lines
-            except (httpx.ReadError, httpx.ConnectError) as e:
+            except self._RETRYABLE_ERRORS as e:
                 last_error = e
+                wait = 2.0 * (attempt + 1)  # 2s, 4s, 6s backoff
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(1.0 * (attempt + 1))
+                    await asyncio.sleep(wait)
         
         raise last_error or RuntimeError("Search request failed")
+
+    @staticmethod
+    def _parse_ndjson(lines: list[str]) -> list[dict[str, Any]]:
+        """Parse NDJSON (newline-delimited JSON) from streamed chunks."""
+        text = "".join(lines).strip()
+        events: list[dict[str, Any]] = []
+        if not text:
+            return events
+        for line in text.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return events
 
     async def execute_search(
         self,
@@ -294,10 +380,10 @@ class HumioClient:
         end: str = "now",
         max_results: int = 200,
     ) -> SearchResult:
-        """Execute a search query using the REST API.
+        """Execute a search query using the Job API (create → poll → fetch).
 
-        The REST query API is simpler and more reliable for one-shot queries
-        than the GraphQL createQueryJob flow.
+        Uses short-lived HTTP requests to avoid idle-timeout disconnections
+        from load balancers and reverse proxies.
 
         Args:
             repo: Repository/view name.
@@ -321,26 +407,21 @@ class HumioClient:
             "isLive": False,
         }
 
-        # Search queries can take a long time depending on data volume.
-        # Use streaming to handle chunked transfer-encoding properly,
-        # and a generous read timeout (10 min) for large scans.
-        # Increased pool timeout to prevent connection reuse issues.
-        
-        lines = await self._stream_search_response(repo, payload)
-
-        # Parse NDJSON (newline-delimited JSON) from streamed chunks
-        text = "".join(lines).strip()
-        events: list[dict[str, Any]] = []
-        if text:
-            for line in text.split("\n"):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    events.append(json.loads(line))
-                except json.JSONDecodeError:
-                    # Some lines might be metadata; skip
-                    continue
+        # Use Job API: short-lived requests that survive idle timeouts.
+        # Falls back to streaming if job API fails (e.g. older Humio versions).
+        job_id: str | None = None
+        try:
+            job_id = await self._create_query_job(repo, payload)
+            events = await self._poll_query_job(repo, job_id)
+        except (httpx.HTTPStatusError, KeyError):
+            # Job API not available or returned unexpected format;
+            # fall back to streaming with retries.
+            job_id = None
+            lines = await self._stream_search_response(repo, payload)
+            events = self._parse_ndjson(lines)
+        finally:
+            if job_id:
+                await self._delete_query_job(repo, job_id)
 
         # Limit results
         truncated = events[:max_results]

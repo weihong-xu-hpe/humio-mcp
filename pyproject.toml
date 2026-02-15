@@ -1,6 +1,6 @@
 [project]
 name = "humio-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "MCP server for querying Humio/LogScale dashboards and executing search queries"
 readme = "README.md"
 authors = [
