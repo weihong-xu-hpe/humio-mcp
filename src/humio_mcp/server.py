@@ -39,7 +39,7 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:  # noqa: A
 # ---------------------------------------------------------------------------
 
 mcp = FastMCP(
-    "HumioMCP",
+    "humio-mcp",
     instructions=(
         "MCP server for querying Humio/LogScale dashboards and executing searches. "
         "Use list_dashboards to discover dashboards, get_dashboard_queries to inspect "
