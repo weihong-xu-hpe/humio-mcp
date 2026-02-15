@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import Any
@@ -254,6 +255,37 @@ class HumioClient:
     # Search / Query execution
     # ------------------------------------------------------------------
 
+    async def _stream_search_response(
+        self, repo: str, payload: dict[str, Any]
+    ) -> list[str]:
+        """Stream search response with automatic retries on connection errors."""
+        max_retries = 3
+        search_timeout = httpx.Timeout(
+            connect=15.0, read=600.0, write=15.0, pool=30.0
+        )
+        
+        last_error: Exception | None = None
+        for attempt in range(max_retries):
+            try:
+                async with self._http_client(timeout=search_timeout) as client:
+                    lines: list[str] = []
+                    async with client.stream(
+                        "POST",
+                        f"/api/v1/repositories/{repo}/query",
+                        json=payload,
+                        headers={"Accept": "application/x-ndjson"},
+                    ) as resp:
+                        resp.raise_for_status()
+                        async for chunk in resp.aiter_text():
+                            lines.append(chunk)
+                return lines
+            except (httpx.ReadError, httpx.ConnectError) as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1.0 * (attempt + 1))
+        
+        raise last_error or RuntimeError("Search request failed")
+
     async def execute_search(
         self,
         repo: str,
@@ -291,21 +323,10 @@ class HumioClient:
 
         # Search queries can take a long time depending on data volume.
         # Use streaming to handle chunked transfer-encoding properly,
-        # and a generous read timeout (5 min) for large scans.
-        search_timeout = httpx.Timeout(
-            connect=10.0, read=300.0, write=10.0, pool=10.0
-        )
-        async with self._http_client(timeout=search_timeout) as client:
-            lines: list[str] = []
-            async with client.stream(
-                "POST",
-                f"/api/v1/repositories/{repo}/query",
-                json=payload,
-                headers={"Accept": "application/x-ndjson"},
-            ) as resp:
-                resp.raise_for_status()
-                async for chunk in resp.aiter_text():
-                    lines.append(chunk)
+        # and a generous read timeout (10 min) for large scans.
+        # Increased pool timeout to prevent connection reuse issues.
+        
+        lines = await self._stream_search_response(repo, payload)
 
         # Parse NDJSON (newline-delimited JSON) from streamed chunks
         text = "".join(lines).strip()

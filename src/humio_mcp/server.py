@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -9,6 +10,7 @@ from dataclasses import dataclass
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 
+from . import __version__
 from .config import AppConfig, load_config
 from .humio_client import HumioClient
 
@@ -167,6 +169,7 @@ async def execute_search(
 
 def main():
     """Run the HumioMCP server."""
+    print(f"HumioMCP v{__version__} - MCP server for Humio/LogScale", file=sys.stderr)
     mcp.run()
 
 
