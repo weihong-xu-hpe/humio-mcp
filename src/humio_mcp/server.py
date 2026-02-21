@@ -132,12 +132,15 @@ async def execute_search(
     start: str = "24h",
     end: str = "now",
     cluster: str = "",
-    max_results: int = 200,
 ) -> str:
     """Execute a search query on Humio/LogScale and return results as JSON.
 
     Supports both relative time ('24h', '7d', '30m') and
     ISO 8601 ('2024-01-01T00:00:00Z') for start/end.
+
+    IMPORTANT: Do not pull large amounts of raw logs. You are strongly encouraged
+    to use LogScale's aggregation functions (e.g., `count()`, `groupBy()`, `timechart()`)
+    in your `query_string` so that computation happens on the server.
 
     Args:
         repo: The repository or view name to search.
@@ -145,7 +148,6 @@ async def execute_search(
         start: Start time - relative ('24h', '7d') or ISO 8601. Default '24h'.
         end: End time - relative or ISO 8601. Use 'now' for current time.
         cluster: (Optional) Cluster name from config. Uses default if empty.
-        max_results: Maximum events to return (default 200).
 
     Returns:
         JSON with query results including events array and metadata.
@@ -157,7 +159,6 @@ async def execute_search(
         query_string=query_string,
         start=start,
         end=end,
-        max_results=max_results,
     )
     return result.model_dump_json(indent=2)
 

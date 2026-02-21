@@ -155,4 +155,3 @@ uv run mcp run src/humio_mcp/server.py
 | start | str | No | Start time (default: `24h`) |
 | end | str | No | End time (default: `now`) |
 | cluster | str | No | Cluster name |
-| max_results | int | No | Max events (default: 200) |

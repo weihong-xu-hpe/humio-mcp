@@ -96,7 +96,7 @@ class HumioClient:
             base_url=self.base_url,
             headers=self.headers,
             timeout=timeout or self.timeout,
-            verify=False,  # Many internal deployments use self-signed certs
+            verify=not self.cluster.skip_ssl_verify,
         )
 
     # ------------------------------------------------------------------
@@ -274,17 +274,29 @@ class HumioClient:
         self, repo: str, payload: dict[str, Any]
     ) -> str:
         """Create a query job and return its ID."""
-        async with self._http_client() as client:
-            resp = await client.post(
-                f"/api/v1/repositories/{repo}/queryjobs",
-                json=payload,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        return data["id"]
+        max_retries = 3
+        last_error: Exception | None = None
+        
+        for attempt in range(max_retries):
+            try:
+                async with self._http_client() as client:
+                    resp = await client.post(
+                        f"/api/v1/repositories/{repo}/queryjobs",
+                        json=payload,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                return data["id"]
+            except self._RETRYABLE_ERRORS as e:
+                last_error = e
+                wait = 2.0 * (attempt + 1)
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(wait)
+                    
+        raise last_error or RuntimeError("Failed to create query job")
 
     async def _poll_query_job(
-        self, repo: str, job_id: str, poll_interval: float = 2.0
+        self, repo: str, job_id: str, poll_interval: float = 2.0, max_polls: int = 30
     ) -> list[dict[str, Any]]:
         """Poll a query job until it completes, then return events.
 
@@ -294,12 +306,18 @@ class HumioClient:
         poll_timeout = httpx.Timeout(connect=15.0, read=30.0, write=10.0, pool=10.0)
 
         async with self._http_client(timeout=poll_timeout) as client:
-            while True:
+            for _ in range(max_polls):
                 resp = await client.get(
                     f"/api/v1/repositories/{repo}/queryjobs/{job_id}",
                 )
                 resp.raise_for_status()
                 data = resp.json()
+
+                # Check for errors in the job status
+                if data.get("error"):
+                    raise RuntimeError(f"Humio query job failed: {data['error']}")
+                if data.get("status") == "Error":
+                    raise RuntimeError(f"Humio query job status is Error: {data}")
 
                 done = data.get("done", False)
                 events = data.get("events", [])
@@ -308,6 +326,8 @@ class HumioClient:
                     return events
 
                 await asyncio.sleep(poll_interval)
+                
+            raise TimeoutError(f"Query job {job_id} did not complete within {max_polls * poll_interval} seconds")
 
     async def _delete_query_job(self, repo: str, job_id: str) -> None:
         """Best-effort cleanup of a finished query job."""
@@ -378,7 +398,6 @@ class HumioClient:
         query_string: str,
         start: str = "24h",
         end: str = "now",
-        max_results: int = 200,
     ) -> SearchResult:
         """Execute a search query using the Job API (create → poll → fetch).
 
@@ -390,7 +409,6 @@ class HumioClient:
             query_string: The Humio query string.
             start: Start time - relative ('24h','7d') or ISO 8601.
             end: End time - relative or ISO 8601. Use 'now' for current time.
-            max_results: Maximum number of events to return (default 200).
         """
         # Build time range
         if end.strip().lower() == "now":
@@ -423,20 +441,15 @@ class HumioClient:
             if job_id:
                 await self._delete_query_job(repo, job_id)
 
-        # Limit results
-        truncated = events[:max_results]
-
         return SearchResult(
             cluster=self.cluster.name,
             repo=repo,
             query_string=query_string,
             start=start,
             end=end,
-            events=truncated,
-            total_events=len(truncated),
+            events=events,
+            total_events=len(events),
             metadata={
-                "total_before_limit": len(events),
-                "max_results": max_results,
-                "truncated": len(events) > max_results,
+                "total_events": len(events),
             },
         )

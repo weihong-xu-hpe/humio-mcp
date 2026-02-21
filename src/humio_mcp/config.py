@@ -22,6 +22,7 @@ class ClusterConfig:
     name: str
     url: str
     token: str
+    skip_ssl_verify: bool = False
 
 
 @dataclass
@@ -88,6 +89,7 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
             name=name,
             url=info["url"].rstrip("/"),
             token=info["token"],
+            skip_ssl_verify=info.get("skip_ssl_verify", False),
         )
 
     if not clusters:
