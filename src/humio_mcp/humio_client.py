@@ -296,7 +296,7 @@ class HumioClient:
         raise last_error or RuntimeError("Failed to create query job")
 
     async def _poll_query_job(
-        self, repo: str, job_id: str, poll_interval: float = 2.0, max_polls: int = 30
+        self, repo: str, job_id: str, poll_interval: float = 2.0, max_polls: int = 120
     ) -> list[dict[str, Any]]:
         """Poll a query job until it completes, then return events.
 
