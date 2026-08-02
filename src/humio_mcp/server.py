@@ -5,10 +5,8 @@ from __future__ import annotations
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 
-from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.session import ServerSession
+from fastmcp import Context, FastMCP
 
 from . import __version__
 from .config import AppConfig, load_config
@@ -20,18 +18,15 @@ from .humio_client import HumioClient
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class AppContext:
-    """Shared application context available to all tools."""
-
-    config: AppConfig
-
-
 @asynccontextmanager
-async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:  # noqa: ARG001
-    """Load configuration on startup."""
+async def app_lifespan(server: FastMCP) -> AsyncIterator[dict[str, AppConfig]]:  # noqa: ARG001
+    """Load configuration on startup.
+
+    Yields a dict so tools can access it via ``ctx.lifespan_context["config"]``,
+    the pattern recommended by FastMCP 3.x.
+    """
     config = load_config()
-    yield AppContext(config=config)
+    yield {"config": config}
 
 
 # ---------------------------------------------------------------------------
@@ -49,11 +44,6 @@ mcp = FastMCP(
 )
 
 
-def _get_client(ctx: Context[ServerSession, AppContext]) -> tuple[AppConfig, None]:
-    """Extract config from context."""
-    return ctx.request_context.lifespan_context.config  # type: ignore[return-value]
-
-
 def _make_client(config: AppConfig, cluster: str | None) -> HumioClient:
     """Create a HumioClient for the given (or default) cluster."""
     cluster_cfg = config.get_cluster(cluster)
@@ -68,7 +58,7 @@ def _make_client(config: AppConfig, cluster: str | None) -> HumioClient:
 @mcp.tool()
 async def list_dashboards(
     repo: str,
-    ctx: Context[ServerSession, AppContext],
+    ctx: Context,
     cluster: str = "",
     search_filter: str = "",
 ) -> str:
@@ -82,7 +72,7 @@ async def list_dashboards(
     Returns:
         JSON with dashboard id, name, description for each dashboard.
     """
-    config: AppConfig = ctx.request_context.lifespan_context.config
+    config: AppConfig = ctx.lifespan_context["config"]
     client = _make_client(config, cluster or None)
     result = await client.list_dashboards(repo, search_filter or None)
     return result.model_dump_json(indent=2)
@@ -97,7 +87,7 @@ async def list_dashboards(
 async def get_dashboard_queries(
     repo: str,
     dashboard_name: str,
-    ctx: Context[ServerSession, AppContext],
+    ctx: Context,
     cluster: str = "",
 ) -> str:
     """Get all search queries from a specific Humio dashboard.
@@ -113,7 +103,7 @@ async def get_dashboard_queries(
     Returns:
         JSON containing each widget's query string, time range, title, and ID.
     """
-    config: AppConfig = ctx.request_context.lifespan_context.config
+    config: AppConfig = ctx.lifespan_context["config"]
     client = _make_client(config, cluster or None)
     result = await client.get_dashboard_queries(repo, dashboard_name)
     return result.model_dump_json(indent=2)
@@ -128,7 +118,7 @@ async def get_dashboard_queries(
 async def execute_search(
     repo: str,
     query_string: str,
-    ctx: Context[ServerSession, AppContext],
+    ctx: Context,
     start: str = "24h",
     end: str = "now",
     cluster: str = "",
@@ -152,7 +142,7 @@ async def execute_search(
     Returns:
         JSON with query results including events array and metadata.
     """
-    config: AppConfig = ctx.request_context.lifespan_context.config
+    config: AppConfig = ctx.lifespan_context["config"]
     client = _make_client(config, cluster or None)
     result = await client.execute_search(
         repo=repo,

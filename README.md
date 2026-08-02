@@ -2,7 +2,7 @@
 
 MCP server for querying Humio/LogScale dashboards and executing search queries.
 
-Built with [FastMCP](https://github.com/modelcontextprotocol/python-sdk) (Python).
+Built with [FastMCP](https://github.com/jlowin/fastmcp) (Python).
 
 ## Features
 
@@ -71,7 +71,7 @@ VS Code config for local clone:
     "humio-mcp": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/HumioMCP", "mcp", "run", "src/humio_mcp/server.py"]
+      "args": ["run", "--directory", "/path/to/HumioMCP", "humio-mcp"]
     }
   }
 }
@@ -125,10 +125,10 @@ Config search order:
 
 ```bash
 # MCP Inspector (interactive debugging)
-uv run mcp dev src/humio_mcp/server.py
+uv run fastmcp dev src/humio_mcp/server.py
 
 # Stdio mode
-uv run mcp run src/humio_mcp/server.py
+uv run humio-mcp
 ```
 
 ## Tools
