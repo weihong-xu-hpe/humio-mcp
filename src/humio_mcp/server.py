@@ -1,16 +1,14 @@
 """HumioMCP - FastMCP server exposing Humio/LogScale tools."""
 
-from __future__ import annotations
-
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastmcp import Context, FastMCP
 
-from . import __version__
-from .config import AppConfig, load_config
-from .humio_client import HumioClient
+from humio_mcp import __version__
+from humio_mcp.config import AppConfig, load_config
+from humio_mcp.humio_client import HumioClient
 
 
 # ---------------------------------------------------------------------------
